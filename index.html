@@ -1,0 +1,49 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Chess Engine</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--l:#f0d9b5;--d:#b58863;--sel:#f6f669;--bg:#fff;--fg:#222}
+@media(prefers-color-scheme:dark){:root{--bg:#1c1c1c;--fg:#eee}}
+body{font-family:system-ui;background:var(--bg);color:var(--fg);margin:0;padding:12px;text-align:center}
+#board{display:grid;grid-template-columns:repeat(8,1fr);width:min(96vw,520px);aspect-ratio:1;margin:8px auto;border:2px solid #444}
+.sq{display:flex;align-items:center;justify-content:center;font-size:min(9vw,52px);cursor:pointer;position:relative;user-select:none}
+.l{background:var(--l)}.d{background:var(--d)}.sel{background:var(--sel)!important}
+.dot::after{content:"";width:28%;height:28%;border-radius:50%;background:rgba(0,0,0,.3);position:absolute}
+.w{color:#fff;text-shadow:0 0 2px #000,0 0 2px #000}.k{color:#000}
+button,select{font-size:16px;padding:8px 12px;margin:3px}
+</style></head><body>
+<h2>Chess Engine</h2><div id="status">Loading…</div><div id="board"></div>
+<button onclick="newGame()">New</button><button onclick="flip()">Flip ⇅</button>
+<button onclick="undo()">Undo</button>
+<select id="side"><option value="w">Play White</option><option value="b">Play Black</option></select>
+<select id="sims"><option value="50">Easy</option><option value="200" selected>Medium</option><option value="800">Hard</option></select>
+<script>
+const G={w:{K:"♔",Q:"♕",R:"♖",B:"♗",N:"♘",P:"♙"},b:{K:"♚",Q:"♛",R:"♜",B:"♝",N:"♞",P:"♟"}};
+let S=null,hist=[],sel=null,flipped=false,busy=false;
+const post=(u,d)=>fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(d)}).then(r=>r.json());
+const mine=()=>S.turn===document.getElementById("side").value;
+function parse(fen){const g={};fen.split(" ")[0].split("/").forEach((row,r)=>{let f=0;for(const c of row){if(+c)f+=+c;else{g[r*8+f]=c;f++}}});return g}
+const name=i=>"abcdefgh"[i%8]+(8-Math.floor(i/8));
+function render(){const g=parse(S.fen),b=document.getElementById("board");b.innerHTML="";
+ const tgt=sel!==null?S.legal.filter(m=>m.slice(0,2)===name(sel)).map(m=>m.slice(2,4)):[];
+ for(let k=0;k<64;k++){const i=flipped?63-k:k,e=document.createElement("div"),p=g[i];
+  e.className="sq "+(((i>>3)+i)%2?"d":"l")+(i===sel?" sel":"")+(tgt.includes(name(i))?" dot":"");
+  if(p){const w=p===p.toUpperCase();e.innerHTML=`<span class="${w?"w":"k"}">${G[w?"w":"b"][p.toUpperCase()]}</span>`}
+  e.onclick=()=>click(i);b.appendChild(e)}
+ const t=S.turn==="w"?"White":"Black";
+ document.getElementById("status").textContent=S.status==="checkmate"?"Checkmate — "+(S.turn==="w"?"Black":"White")+" wins":
+  ["stalemate","draw"].includes(S.status)?"Draw":t+" to move"+(S.status==="check"?" (check)":"")}
+async function click(i){if(busy||!mine())return;
+ if(sel!==null&&S.legal.some(m=>m.startsWith(name(sel)+name(i)))){await play(name(sel)+name(i));sel=null;return}
+ sel=parse(S.fen)[i]?i:null;render()}
+async function play(m){const r=await post("/api/play",{fen:S.fen,move:m});if(r.error)return;hist.push(S.fen);S=r;render();engineMove()}
+async function engineMove(){if(S.status==="checkmate"||mine()||["stalemate","draw"].includes(S.status))return;
+ busy=true;document.getElementById("status").textContent="Engine thinking…";
+ const e=await post("/api/engine",{fen:S.fen,sims:+document.getElementById("sims").value});
+ const r=await post("/api/play",{fen:S.fen,move:e.move});hist.push(S.fen);S=r;busy=false;render()}
+async function newGame(){hist=[];sel=null;flipped=document.getElementById("side").value==="b";
+ S=await post("/api/state",{});render();engineMove()}
+async function undo(){if(busy||!hist.length)return;const n=mine()?2:1;let f;for(let i=0;i<n&&hist.length;i++)f=hist.pop();
+ S=await post("/api/state",{fen:f});sel=null;render()}
+function flip(){flipped=!flipped;render()}
+document.getElementById("side").onchange=newGame;newGame();
+</script></body></html>

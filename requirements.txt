@@ -1,0 +1,5 @@
+python-chess>=1.10
+numpy
+torch
+flask
+zstandard
